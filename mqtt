@@ -1,0 +1,315 @@
+#include "stm32f10x.h"    //°üº¬ÐèÒªµÄÍ·ÎÄ¼þ
+#include "mqtt.h"         //°üº¬ÐèÒªµÄÍ·ÎÄ¼þ
+#include "string.h"       //°üº¬ÐèÒªµÄÍ·ÎÄ¼þ
+#include "stdio.h"        //°üº¬ÐèÒªµÄÍ·ÎÄ¼þ
+#include "usart1.h"       //°üº¬ÐèÒªµÄÍ·ÎÄ¼þ
+#include "wifi.h"         //°üº¬ÐèÒªµÄÍ·ÎÄ¼þ
+
+unsigned char  MQTT_RxDataBuf[R_NUM][RBUFF_UNIT];  //Êý¾ÝµÄ½ÓÊÕ»º³åÇø,ËùÓÐ·þÎñÆ÷·¢À´µÄÊý¾Ý£¬´æ·ÅÔÚ¸Ã»º³åÇø,»º³åÇøµÚÒ»¸ö×Ö½Ú´æ·ÅÊý¾Ý³¤¶È
+unsigned char *MQTT_RxDataInPtr;                   //Ö¸Ïò½ÓÊÕ»º³åÇø´æ·ÅÊý¾ÝµÄÎ»ÖÃ
+unsigned char *MQTT_RxDataOutPtr;                  //Ö¸Ïò½ÓÊÕ»º³åÇø¶ÁÈ¡Êý¾ÝµÄÎ»ÖÃ
+unsigned char *MQTT_RxDataEndPtr;                  //Ö¸Ïò½ÓÊÕ»º³åÇø½áÊøµÄÎ»ÖÃ
+
+unsigned char  MQTT_TxDataBuf[T_NUM][TBUFF_UNIT];  //Êý¾ÝµÄ·¢ËÍ»º³åÇø,ËùÓÐ·¢Íù·þÎñÆ÷µÄÊý¾Ý£¬´æ·ÅÔÚ¸Ã»º³åÇø,»º³åÇøµÚÒ»¸ö×Ö½Ú´æ·ÅÊý¾Ý³¤¶È
+unsigned char *MQTT_TxDataInPtr;                   //Ö¸Ïò·¢ËÍ»º³åÇø´æ·ÅÊý¾ÝµÄÎ»ÖÃ
+unsigned char *MQTT_TxDataOutPtr;                  //Ö¸Ïò·¢ËÍ»º³åÇø¶ÁÈ¡Êý¾ÝµÄÎ»ÖÃ
+unsigned char *MQTT_TxDataEndPtr;                  //Ö¸Ïò·¢ËÍ»º³åÇø½áÊøµÄÎ»ÖÃ
+
+unsigned char  MQTT_CMDBuf[C_NUM][CBUFF_UNIT];     //ÃüÁîÊý¾ÝµÄ½ÓÊÕ»º³åÇø
+unsigned char *MQTT_CMDInPtr;                      //Ö¸ÏòÃüÁî»º³åÇø´æ·ÅÊý¾ÝµÄÎ»ÖÃ
+unsigned char *MQTT_CMDOutPtr;                     //Ö¸ÏòÃüÁî»º³åÇø¶ÁÈ¡Êý¾ÝµÄÎ»ÖÃ
+unsigned char *MQTT_CMDEndPtr;                     //Ö¸ÏòÃüÁî»º³åÇø½áÊøµÄÎ»ÖÃ
+
+char ClientID[128];                                //´æ·Å¿Í»§¶ËIDµÄ»º³åÇø
+int  ClientID_len;                                 //´æ·Å¿Í»§¶ËIDµÄ³¤¶È
+
+char Username[128];                                //´æ·ÅÓÃ»§ÃûµÄ»º³åÇø
+int  Username_len;								   //´æ·ÅÓÃ»§ÃûµÄ³¤¶È
+
+char Passward[128];                                //´æ·ÅÃÜÂëµÄ»º³åÇø
+int  Passward_len;								   //´æ·ÅÃÜÂëµÄ³¤¶È
+
+char ServerIP[128];                                //´æ·Å·þÎñÆ÷IP»òÊÇÓòÃû
+int  ServerPort;                                   //´æ·Å·þÎñÆ÷µÄ¶Ë¿ÚºÅ
+
+int   Fixed_len;                       			   //¹Ì¶¨±¨Í·³¤¶È
+int   Variable_len;                     		   //¿É±ä±¨Í·³¤¶È
+int   Payload_len;                       		   //ÓÐÐ§¸ººÉ³¤¶È
+unsigned char  temp_buff[TBUFF_UNIT];			   //ÁÙÊ±»º³åÇø£¬¹¹½¨±¨ÎÄÓÃ
+
+char pingFlag;           //ping±¨ÎÄ×´Ì¬       0£ºÕý³£×´Ì¬£¬µÈ´ý¼ÆÊ±Ê±¼äµ½£¬·¢ËÍPing±¨ÎÄ
+                         //ping±¨ÎÄ×´Ì¬       1£ºPing±¨ÎÄÒÑ·¢ËÍ£¬µ±ÊÕµ½ ·þÎñÆ÷»Ø¸´±¨ÎÄµÄºó ½«1ÖÃÎª0
+char connectFlag;        //Í¬·þÎñÆ÷Á¬½Ó×´Ì¬   0£º»¹Ã»ÓÐÁ¬½Ó·þÎñÆ÷  1£ºÁ¬½ÓÉÏ·þÎñÆ÷ÁË
+char connectPackFlag;    //CONNECT±¨ÎÄ×´Ì¬    1£ºCONNECT±¨ÎÄ³É¹¦
+char subcribePackFlag;   //¶©ÔÄ±¨ÎÄ×´Ì¬       1£º¶©ÔÄ±¨ÎÄ³É¹¦
+
+/*----------------------------------------------------------*/
+/*º¯ÊýÃû£º³õÊ¼»¯½ÓÊÕ,·¢ËÍ,ÃüÁîÊý¾ÝµÄ »º³åÇø ÒÔ¼°¸÷×´Ì¬²ÎÊý  */
+/*²Î  Êý£ºÎÞ                                                */
+/*·µ»ØÖµ£ºÎÞ                                                */
+/*----------------------------------------------------------*/
+void MQTT_Buff_Init(void)
+{	
+	MQTT_RxDataInPtr=MQTT_RxDataBuf[0]; 				 //Ö¸Ïò·¢ËÍ»º³åÇø´æ·ÅÊý¾ÝµÄÖ¸Õë¹éÎ»
+	MQTT_RxDataOutPtr=MQTT_RxDataInPtr; 				 //Ö¸Ïò·¢ËÍ»º³åÇø¶ÁÈ¡Êý¾ÝµÄÖ¸Õë¹éÎ»
+	MQTT_RxDataEndPtr=MQTT_RxDataBuf[R_NUM-1];		     //Ö¸Ïò·¢ËÍ»º³åÇø½áÊøµÄÖ¸Õë¹éÎ»
+	
+	MQTT_TxDataInPtr=MQTT_TxDataBuf[0];					 //Ö¸Ïò·¢ËÍ»º³åÇø´æ·ÅÊý¾ÝµÄÖ¸Õë¹éÎ»
+	MQTT_TxDataOutPtr=MQTT_TxDataInPtr;				     //Ö¸Ïò·¢ËÍ»º³åÇø¶ÁÈ¡Êý¾ÝµÄÖ¸Õë¹éÎ»
+	MQTT_TxDataEndPtr=MQTT_TxDataBuf[T_NUM-1];           //Ö¸Ïò·¢ËÍ»º³åÇø½áÊøµÄÖ¸Õë¹éÎ»
+	
+	MQTT_CMDInPtr=MQTT_CMDBuf[0];                        //Ö¸ÏòÃüÁî»º³åÇø´æ·ÅÊý¾ÝµÄÖ¸Õë¹éÎ»
+	MQTT_CMDOutPtr=MQTT_CMDInPtr;                        //Ö¸ÏòÃüÁî»º³åÇø¶ÁÈ¡Êý¾ÝµÄÖ¸Õë¹éÎ»
+	MQTT_CMDEndPtr=MQTT_CMDBuf[C_NUM-1];              	 //Ö¸ÏòÃüÁî»º³åÇø½áÊøµÄÖ¸Õë¹éÎ»
+
+	MQTT_ConectPack();                                	 //·¢ËÍ»º³åÇøÌí¼ÓÁ¬½Ó±¨ÎÄ
+	MQTT_Subscribe(S_TOPIC_NAME,0);	                 	 //·¢ËÍ»º³åÇøÌí¼Ó¶©ÔÄtopic£¬µÈ¼¶0	
+	
+	pingFlag = connectPackFlag = subcribePackFlag = 0;   //¸÷¸ö²ÎÊýÇåÁã
+}
+
+/*----------------------------------------------------------*/
+/*º¯ÊýÃû£ºÔÆ³õÊ¼»¯²ÎÊý£¬µÃµ½¿Í»§¶ËID£¬ÓÃ»§ÃûºÍÃÜÂë          */
+/*²Î  Êý£ºÎÞ                                                */
+/*·µ»ØÖµ£ºÎÞ                                                */
+/*----------------------------------------------------------*/
+void IoT_Parameter_Init(void)
+{	
+	memset(ClientID,0,128);                              //¿Í»§¶ËIDµÄ»º³åÇøÈ«²¿ÇåÁã
+	sprintf(ClientID,"%s",DEVICEID);                     //¹¹½¨¿Í»§¶ËID£¬²¢´æÈë»º³åÇø
+	ClientID_len = strlen(ClientID);                     //¼ÆËã¿Í»§¶ËIDµÄ³¤¶È
+	
+	memset(Username,0,128);                              //ÓÃ»§ÃûµÄ»º³åÇøÈ«²¿ÇåÁã
+	sprintf(Username,"%s",PRODUCTID);                    //¹¹½¨ÓÃ»§Ãû£¬²¢´æÈë»º³åÇø
+	Username_len = strlen(Username);                     //¼ÆËãÓÃ»§ÃûµÄ³¤¶È
+	
+	memset(Passward,0,128);                              //ÓÃ»§ÃûµÄ»º³åÇøÈ«²¿ÇåÁã
+	sprintf(Passward,"%s",AUTHENTICATION);               //¹¹½¨ÃÜÂë£¬²¢´æÈë»º³åÇø
+	Passward_len = strlen(Passward);                     //¼ÆËãÃÜÂëµÄ³¤¶È
+	
+	memset(ServerIP,0,128);  
+	sprintf(ServerIP,"%s","183.230.40.39");              //¹¹½¨·þÎñÆ÷ÓòÃû
+	ServerPort = 6002;                                   //·þÎñÆ÷¶Ë¿ÚºÅ6002
+	
+	u1_printf("·þ Îñ Æ÷£º%s:%d\r\n",ServerIP,ServerPort); //´®¿ÚÊä³öµ÷ÊÔÐÅÏ¢
+	u1_printf("¿Í»§¶ËID£º%s\r\n",ClientID);               //´®¿ÚÊä³öµ÷ÊÔÐÅÏ¢
+	u1_printf("ÓÃ »§ Ãû£º%s\r\n",Username);               //´®¿ÚÊä³öµ÷ÊÔÐÅÏ¢
+	u1_printf("ÃÜ    Âë£º%s\r\n",Passward);               //´®¿ÚÊä³öµ÷ÊÔÐÅÏ¢
+}
+
+/*----------------------------------------------------------*/
+/*º¯ÊýÃû£ºÁ¬½Ó·þÎñÆ÷±¨ÎÄ                                    */
+/*²Î  Êý£ºÎÞ                                                */
+/*·µ»ØÖµ£ºÎÞ                                                */
+/*----------------------------------------------------------*/
+void MQTT_ConectPack(void)
+{	
+	int temp,Remaining_len;
+	
+	Fixed_len = 1;                                                        //Á¬½Ó±¨ÎÄÖÐ£¬¹Ì¶¨±¨Í·³¤¶ÈÔÝÊ±ÏÈ=1
+	Variable_len = 10;                                                    //Á¬½Ó±¨ÎÄÖÐ£¬¿É±ä±¨Í·³¤¶È=10
+	Payload_len = 2 + ClientID_len + 2 + Username_len + 2 + Passward_len; //Á¬½Ó±¨ÎÄÖÐ£¬¸ºÔØ³¤¶È      
+	Remaining_len = Variable_len + Payload_len;                           //Ê£Óà³¤¶È=¿É±ä±¨Í·³¤¶È+¸ºÔØ³¤¶È
+	
+	temp_buff[0]=0x10;                         //¹Ì¶¨±¨Í·µÚ1¸ö×Ö½Ú £º¹Ì¶¨0x01		
+	do{                                        //Ñ­»·´¦Àí¹Ì¶¨±¨Í·ÖÐµÄÊ£Óà³¤¶È×Ö½Ú£¬×Ö½ÚÁ¿¸ù¾ÝÊ£Óà×Ö½ÚµÄÕæÊµ³¤¶È±ä»¯
+		temp = Remaining_len%128;              //Ê£Óà³¤¶ÈÈ¡Óà128
+		Remaining_len = Remaining_len/128;     //Ê£Óà³¤¶ÈÈ¡Õû128
+		if(Remaining_len>0)               	
+			temp |= 0x80;                      //°´Ð­ÒéÒªÇóÎ»7ÖÃÎ»          
+		temp_buff[Fixed_len] = temp;           //Ê£Óà³¤¶È×Ö½Ú¼ÇÂ¼Ò»¸öÊý¾Ý
+		Fixed_len++;	                       //¹Ì¶¨±¨Í·×Ü³¤¶È+1    
+	}while(Remaining_len > 0);                 //Èç¹ûRemaining_len>0µÄ»°£¬ÔÙ´Î½øÈëÑ­»·
+	
+	temp_buff[Fixed_len + 0] = 0x00;     //¿É±ä±¨Í·µÚ1¸ö×Ö½Ú £º¹Ì¶¨0x00	            
+	temp_buff[Fixed_len + 1] = 0x04;     //¿É±ä±¨Í·µÚ2¸ö×Ö½Ú £º¹Ì¶¨0x04
+	temp_buff[Fixed_len + 2] = 0x4D;	 //¿É±ä±¨Í·µÚ3¸ö×Ö½Ú £º¹Ì¶¨0x4D
+	temp_buff[Fixed_len + 3] = 0x51;	 //¿É±ä±¨Í·µÚ4¸ö×Ö½Ú £º¹Ì¶¨0x51
+	temp_buff[Fixed_len + 4] = 0x54;	 //¿É±ä±¨Í·µÚ5¸ö×Ö½Ú £º¹Ì¶¨0x54
+	temp_buff[Fixed_len + 5] = 0x54;     //¿É±ä±¨Í·µÚ6¸ö×Ö½Ú £º¹Ì¶¨0x54
+	temp_buff[Fixed_len + 6] = 0x04;	 //¿É±ä±¨Í·µÚ7¸ö×Ö½Ú £º¹Ì¶¨0x04
+	temp_buff[Fixed_len + 7] = 0xC2;	 //¿É±ä±¨Í·µÚ8¸ö×Ö½Ú £ºÊ¹ÄÜÓÃ»§ÃûºÍÃÜÂëÐ£Ñé£¬²»Ê¹ÓÃÒÅÖö£¬²»±£Áô»á»°
+	temp_buff[Fixed_len + 8] = 0x00; 	 //¿É±ä±¨Í·µÚ9¸ö×Ö½Ú £º±£»îÊ±¼ä¸ß×Ö½Ú 0x00
+	temp_buff[Fixed_len + 9] = 0x64;	 //¿É±ä±¨Í·µÚ10¸ö×Ö½Ú£º±£»îÊ±¼ä¸ß×Ö½Ú 0x64   100s
+	
+	/*     CLIENT_ID      */
+	temp_buff[Fixed_len+10] = ClientID_len/256;                			  	//¿Í»§¶ËID³¤¶È¸ß×Ö½Ú
+	temp_buff[Fixed_len+11] = ClientID_len%256;               			  	//¿Í»§¶ËID³¤¶ÈµÍ×Ö½Ú
+	memcpy(&temp_buff[Fixed_len+12],ClientID,ClientID_len);                 //¸´ÖÆ¹ýÀ´¿Í»§¶ËID×Ö´®	
+	/*     ÓÃ»§Ãû        */
+	temp_buff[Fixed_len+12+ClientID_len] = Username_len/256; 				//ÓÃ»§Ãû³¤¶È¸ß×Ö½Ú
+	temp_buff[Fixed_len+13+ClientID_len] = Username_len%256; 				//ÓÃ»§Ãû³¤¶ÈµÍ×Ö½Ú
+	memcpy(&temp_buff[Fixed_len+14+ClientID_len],Username,Username_len);    //¸´ÖÆ¹ýÀ´ÓÃ»§Ãû×Ö´®	
+	/*      ÃÜÂë        */
+	temp_buff[Fixed_len+14+ClientID_len+Username_len] = Passward_len/256;	//ÃÜÂë³¤¶È¸ß×Ö½Ú
+	temp_buff[Fixed_len+15+ClientID_len+Username_len] = Passward_len%256;	//ÃÜÂë³¤¶ÈµÍ×Ö½Ú
+	memcpy(&temp_buff[Fixed_len+16+ClientID_len+Username_len],Passward,Passward_len); //¸´ÖÆ¹ýÀ´ÃÜÂë×Ö´®
+
+	TxDataBuf_Deal(temp_buff, Fixed_len + Variable_len + Payload_len);      //¼ÓÈë·¢ËÍÊý¾Ý»º³åÇø
+}
+
+/*----------------------------------------------------------*/
+/*º¯ÊýÃû£ºSUBSCRIBE¶©ÔÄtopic±¨ÎÄ                            */
+/*²Î  Êý£ºQoS£º¶©ÔÄµÈ¼¶                                     */
+/*²Î  Êý£ºtopic_name£º¶©ÔÄtopic±¨ÎÄÃû³Æ                     */
+/*·µ»ØÖµ£ºÎÞ                                                */
+/*----------------------------------------------------------*/
+void MQTT_Subscribe(char *topic_name, int QoS)
+{	
+	Fixed_len = 2;                              		   //SUBSCRIBE±¨ÎÄÖÐ£¬¹Ì¶¨±¨Í·³¤¶È=2
+	Variable_len = 2;                          			   //SUBSCRIBE±¨ÎÄÖÐ£¬¿É±ä±¨Í·³¤¶È=2	
+	Payload_len = 2 + strlen(topic_name) + 1;   		   //¼ÆËãÓÐÐ§¸ººÉ³¤¶È = 2×Ö½Ú(topic_name³¤¶È)+ topic_name×Ö·û´®µÄ³¤¶È + 1×Ö½Ú·þÎñµÈ¼¶
+	
+	temp_buff[0] = 0x82;                                   //µÚ1¸ö×Ö½Ú £º¹Ì¶¨0x82                      
+	temp_buff[1] = Variable_len + Payload_len;             //µÚ2¸ö×Ö½Ú £º¿É±ä±¨Í·+ÓÐÐ§¸ººÉµÄ³¤¶È	
+	temp_buff[2] = 0x00;                                   //µÚ3¸ö×Ö½Ú £º±¨ÎÄ±êÊ¶·û¸ß×Ö½Ú£¬¹Ì¶¨Ê¹ÓÃ0x00
+	temp_buff[3] = 0x01;		                           //µÚ4¸ö×Ö½Ú £º±¨ÎÄ±êÊ¶·ûµÍ×Ö½Ú£¬¹Ì¶¨Ê¹ÓÃ0x01
+	temp_buff[4] = strlen(topic_name)/256;                 //µÚ5¸ö×Ö½Ú £ºtopic_name³¤¶È¸ß×Ö½Ú
+	temp_buff[5] = strlen(topic_name)%256;		           //µÚ6¸ö×Ö½Ú £ºtopic_name³¤¶ÈµÍ×Ö½Ú
+	memcpy(&temp_buff[6], topic_name, strlen(topic_name)); //µÚ7¸ö×Ö½Ú¿ªÊ¼ £º¸´ÖÆ¹ýÀ´topic_name×Ö´®		
+	temp_buff[6 + strlen(topic_name)] = QoS;               //×îºó1¸ö×Ö½Ú£º¶©ÔÄµÈ¼¶
+	
+	TxDataBuf_Deal(temp_buff, Fixed_len + Variable_len + Payload_len);  //¼ÓÈë·¢ËÍÊý¾Ý»º³åÇø
+}
+
+/*----------------------------------------------------------*/
+/*º¯ÊýÃû£ºPING±¨ÎÄ£¬ÐÄÌø°ü                                   */
+/*²Î  Êý£ºÎÞ                                                */
+/*·µ»ØÖµ£ºÎÞ                                                */
+/*----------------------------------------------------------*/
+void MQTT_PingREQ(void)
+{
+	temp_buff[0] = 0xC0;              //µÚ1¸ö×Ö½Ú £º¹Ì¶¨0xC0                      
+	temp_buff[1] = 0x00;              //µÚ2¸ö×Ö½Ú £º¹Ì¶¨0x00 
+
+	TxDataBuf_Deal(temp_buff, 2);     //¼ÓÈëÊý¾Ýµ½»º³åÇø
+}
+
+/*----------------------------------------------------------*/
+/*º¯ÊýÃû£ºµÈ¼¶0 ·¢²¼ÏûÏ¢±¨ÎÄ                                  */
+/*²Î  Êý£ºtopic_name£ºtopicÃû³Æ                              */
+/*²Î  Êý£ºdata£ºÊý¾Ý                                         */ 
+/*²Î  Êý£ºdata_len£ºÊý¾Ý³¤¶È                                 */
+/*·µ»ØÖµ£ºÎÞ                                                 */
+/*----------------------------------------------------------*/
+void MQTT_PublishQs0(char *topic, char *data, int data_len)
+{	
+	int temp,Remaining_len;
+	
+	Fixed_len = 1;                              //¹Ì¶¨±¨Í·³¤¶ÈÔÝÊ±ÏÈµÈÓÚ£º1×Ö½Ú
+	Variable_len = 2 + strlen(topic);           //¿É±ä±¨Í·³¤¶È£º2×Ö½Ú(topic³¤¶È)+ topic×Ö·û´®µÄ³¤¶È
+	Payload_len = data_len;                     //ÓÐÐ§¸ººÉ³¤¶È£º¾ÍÊÇdata_len
+	Remaining_len = Variable_len + Payload_len; //Ê£Óà³¤¶È=¿É±ä±¨Í·³¤¶È+¸ºÔØ³¤¶È
+	
+	temp_buff[0] = 0x30;                      	//¹Ì¶¨±¨Í·µÚ1¸ö×Ö½Ú £º¹Ì¶¨0x30   	
+	do{                                         //Ñ­»·´¦Àí¹Ì¶¨±¨Í·ÖÐµÄÊ£Óà³¤¶È×Ö½Ú£¬×Ö½ÚÁ¿¸ù¾ÝÊ£Óà×Ö½ÚµÄÕæÊµ³¤¶È±ä»¯
+		temp = Remaining_len%128;           	//Ê£Óà³¤¶ÈÈ¡Óà128
+		Remaining_len = Remaining_len/128;      //Ê£Óà³¤¶ÈÈ¡Õû128
+		if(Remaining_len>0)               	
+			temp |= 0x80;                    	//°´Ð­ÒéÒªÇóÎ»7ÖÃÎ»          
+		temp_buff[Fixed_len] = temp;            //Ê£Óà³¤¶È×Ö½Ú¼ÇÂ¼Ò»¸öÊý¾Ý
+		Fixed_len++;	                     	//¹Ì¶¨±¨Í·×Ü³¤¶È+1    
+	}while(Remaining_len>0);                    //Èç¹ûRemaining_len>0µÄ»°£¬ÔÙ´Î½øÈëÑ­»·
+		             
+	temp_buff[Fixed_len+0] = strlen(topic)/256;                       //¿É±ä±¨Í·µÚ1¸ö×Ö½Ú     £ºtopic³¤¶È¸ß×Ö½Ú
+	temp_buff[Fixed_len+1] = strlen(topic)%256;		                  //¿É±ä±¨Í·µÚ2¸ö×Ö½Ú     £ºtopic³¤¶ÈµÍ×Ö½Ú
+	memcpy(&temp_buff[Fixed_len+2], topic,strlen(topic));             //¿É±ä±¨Í·µÚ3¸ö×Ö½Ú¿ªÊ¼ £º¿½±´topic×Ö·û´®	
+	memcpy(&temp_buff[Fixed_len + 2 + strlen(topic)], data, data_len);//ÓÐÐ§¸ººÉ£º¿½±´dataÊý¾Ý
+	
+	TxDataBuf_Deal(temp_buff, Fixed_len + Variable_len + Payload_len);//¼ÓÈë·¢ËÍÊý¾Ý»º³åÇø	
+}
+
+/*----------------------------------------------------------*/
+/*º¯ÊýÃû£º´¦Àí·þÎñÆ÷·¢À´µÄµÈ¼¶0µÄÍÆËÍ                          */
+/*²Î  Êý£ºredata£º½ÓÊÕµÄÊý¾Ý                                 */
+/*·µ»ØÖµ£ºÎÞ                                                 */
+/*----------------------------------------------------------*/
+void MQTT_DealPushdata_Qs0(unsigned char *redata)
+{
+	int  re_len;               	           //¶¨ÒåÒ»¸ö±äÁ¿£¬´æ·Å½ÓÊÕµÄÊý¾Ý×Ü³¤¶È
+	int  pack_num;                         //¶¨ÒåÒ»¸ö±äÁ¿£¬µ±¶à¸öÍÆËÍÒ»Æð¹ýÀ´Ê±£¬±£´æÍÆËÍµÄ¸öÊý
+    int  temp,temp_len;                    //¶¨ÒåÒ»¸ö±äÁ¿£¬ÔÝ´æÊý¾Ý
+    int  totle_len;                        //¶¨ÒåÒ»¸ö±äÁ¿£¬´æ·ÅÒÑ¾­Í³¼ÆµÄÍÆËÍµÄ×ÜÊý¾ÝÁ¿
+	int  topic_len;              	       //¶¨ÒåÒ»¸ö±äÁ¿£¬´æ·ÅÍÆËÍÖÐÖ÷ÌâµÄ³¤¶È
+	int  cmd_len;                          //¶¨ÒåÒ»¸ö±äÁ¿£¬´æ·ÅÍÆËÍÖÐ°üº¬µÄÃüÁîÊý¾ÝµÄ³¤¶È
+	int  cmd_loca;                         //¶¨ÒåÒ»¸ö±äÁ¿£¬´æ·ÅÍÆËÍÖÐ°üº¬µÄÃüÁîµÄÆðÊ¼Î»ÖÃ
+	int  i;                                //¶¨ÒåÒ»¸ö±äÁ¿£¬ÓÃÓÚforÑ­»·
+	int  local,multiplier;
+	unsigned char tempbuff[RBUFF_UNIT];	   //ÁÙÊ±»º³åÇø
+	unsigned char *data;                   //redata¹ýÀ´µÄÊ±ºò£¬µÚÒ»¸ö×Ö½ÚÊÇÊý¾Ý×ÜÁ¿£¬dataÓÃÓÚÖ¸ÏòredataµÄµÚ2¸ö×Ö½Ú£¬ÕæÕýµÄÊý¾Ý¿ªÊ¼µÄµØ·½
+		
+	re_len = redata[0]*256+redata[1];                     //»ñÈ¡½ÓÊÕµÄÊý¾Ý×Ü³¤¶È		
+	data = &redata[2];                                    //dataÖ¸ÏòredataµÄµÚ2¸ö×Ö½Ú£¬ÕæÕýµÄÊý¾Ý¿ªÊ¼µÄ 
+	pack_num = temp_len = totle_len = temp = 0;           //¸÷¸ö±äÁ¿ÇåÁã
+	local = 1;
+	multiplier = 1;
+	do{
+		pack_num++;                                       //¿ªÊ¼Ñ­»·Í³¼ÆÍÆËÍµÄ¸öÊý£¬Ã¿´ÎÑ­»·ÍÆËÍµÄ¸öÊý+1	
+		do{
+			temp = data[totle_len + local];   
+			temp_len += (temp & 127) * multiplier;
+			multiplier *= 128;
+			local++;
+		}while ((temp & 128) != 0);
+		totle_len += (temp_len + local);                  //ÀÛ¼ÆÍ³¼ÆµÄ×ÜµÄÍÆËÍµÄÊý¾Ý³¤¶È
+		re_len -= (temp_len + local) ;                    //½ÓÊÕµÄÊý¾Ý×Ü³¤¶È ¼õÈ¥ ±¾´ÎÍ³¼ÆµÄÍÆËÍµÄ×Ü³¤¶È      
+		local = 1;
+		multiplier = 1;
+		temp_len = 0;
+	}while(re_len!=0);                                    //Èç¹û½ÓÊÕµÄÊý¾Ý×Ü³¤¶ÈµÈÓÚ0ÁË£¬ËµÃ÷Í³¼ÆÍê±ÏÁË
+	u1_printf("±¾´Î½ÓÊÕÁË%d¸öÍÆËÍÊý¾Ý\r\n",pack_num);		//´®¿ÚÊä³öÐÅÏ¢
+	temp_len = totle_len = 0;                		      //¸÷¸ö±äÁ¿ÇåÁã
+	local = 1;
+	multiplier = 1;
+	for(i = 0; i < pack_num; i++)			//ÒÑ¾­Í³¼Æµ½ÁË½ÓÊÕµÄÍÆËÍ¸öÊý£¬¿ªÊ¼forÑ­»·£¬È¡³öÃ¿¸öÍÆËÍµÄÊý¾Ý 
+	{                                		
+		do{
+			temp = data[totle_len + local];   
+			temp_len += (temp & 127) * multiplier;
+			multiplier *= 128;
+			local++;
+		}while ((temp & 128) != 0);				
+		topic_len = data[local + totle_len]*256 + data[local + 1 + totle_len] + 2; //¼ÆËã±¾´ÎÍÆËÍÊý¾ÝÖÐÖ÷ÌâÕ¼ÓÃµÄÊý¾ÝÁ¿
+		cmd_len = temp_len - topic_len;                              			   //¼ÆËã±¾´ÎÍÆËÍÊý¾ÝÖÐÃüÁîÊý¾ÝÕ¼ÓÃµÄÊý¾ÝÁ¿
+		cmd_loca = totle_len + local +  topic_len;                  			   //¼ÆËã±¾´ÎÍÆËÍÊý¾ÝÖÐÃüÁîÊý¾Ý¿ªÊ¼µÄÎ»ÖÃ
+		memcpy(tempbuff, &data[cmd_loca], cmd_len);                   			   //ÃüÁîÊý¾Ý¿½±´³öÀ´		                 
+		CMDBuf_Deal(tempbuff, cmd_len);                             			   //¼ÓÈëÃüÁîµ½»º³åÇø
+		totle_len += (temp_len + local);                              			   //ÀÛ¼ÆÒÑ¾­Í³¼ÆµÄÍÆËÍµÄÊý¾Ý³¤¶È
+		local = 1;
+		multiplier = 1;
+		temp_len = 0;
+	}	
+}
+
+/*----------------------------------------------------------*/
+/*º¯ÊýÃû£º´¦Àí·¢ËÍ»º³åÇø                                      */
+/*²Î  Êý£ºdata£ºÊý¾Ý                                         */
+/*²Î  Êý£ºsize£ºÊý¾Ý³¤¶È								     */
+/*·µ»ØÖµ£ºÎÞ                                                 */
+/*----------------------------------------------------------*/
+void TxDataBuf_Deal(unsigned char *data, int size)
+{
+	memcpy(&MQTT_TxDataInPtr[2], data, size);     //¿½±´Êý¾Ýµ½·¢ËÍ»º³åÇø	
+	MQTT_TxDataInPtr[0] = size/256;               //¼ÇÂ¼Êý¾Ý³¤¶È
+	MQTT_TxDataInPtr[1] = size%256;               //¼ÇÂ¼Êý¾Ý³¤¶È
+	MQTT_TxDataInPtr += TBUFF_UNIT;               //Ö¸ÕëÏÂÒÆ
+	if(MQTT_TxDataInPtr == MQTT_TxDataEndPtr)     //Èç¹ûÖ¸Õëµ½»º³åÇøÎ²²¿ÁË
+		MQTT_TxDataInPtr = MQTT_TxDataBuf[0];     //Ö¸Õë¹éÎ»µ½»º³åÇø¿ªÍ·
+}
+
+/*----------------------------------------------------------*/
+/*º¯ÊýÃû£º´¦ÀíÃüÁî»º³åÇø									 */
+/*²Î  Êý£ºdata£ºÊý¾Ý                                        */
+/*²Î  Êý£ºsize£ºÊý¾Ý³¤¶È                                    */
+/*·µ»ØÖµ£ºÎÞ                                                */
+/*----------------------------------------------------------*/
+void CMDBuf_Deal(unsigned char *data, int size)
+{
+	memcpy(&MQTT_CMDInPtr[2], data,size);         //¿½±´Êý¾Ýµ½ÃüÁî»º³åÇø
+	MQTT_CMDInPtr[0] = size/256;              	  //¼ÇÂ¼Êý¾Ý³¤¶È
+	MQTT_CMDInPtr[1] = size%256;                  //¼ÇÂ¼Êý¾Ý³¤¶È
+	MQTT_CMDInPtr[size+2] = '\0';                 //¼ÓÈë×Ö·û´®½áÊø·û
+	MQTT_CMDInPtr += CBUFF_UNIT;               	  //Ö¸ÕëÏÂÒÆ
+	if(MQTT_CMDInPtr == MQTT_CMDEndPtr)           //Èç¹ûÖ¸Õëµ½»º³åÇøÎ²²¿ÁË
+		MQTT_CMDInPtr = MQTT_CMDBuf[0];        	  //Ö¸Õë¹éÎ»µ½»º³åÇø¿ªÍ·
+}
